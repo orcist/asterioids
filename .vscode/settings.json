@@ -1,0 +1,8 @@
+// Place your settings in this file to overwrite default and user settings.
+{
+  "eslint.enable": false,
+  "jshint.enable": true,
+  "jshint.options": {
+    "asi": true
+  }
+}
