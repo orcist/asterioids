@@ -1,9 +1,25 @@
+TIME_PER_FRAME = 1000 / 30 // 30 fps
+ASTEROID_PEN = {
+  fill: '#000',
+  stroke: {
+    color: '#fff',
+    width: 1
+  }
+}
+PLAYER_PEN = {
+  fill: '#000',
+  stroke: {
+    color: '#fff',
+    width: 2
+  }
+}
+
 // Game class ----------------------------------------------------------
 function Game(){
   this.rootElement = document.createElement('div')
   this.rootElement.style.position = 'absolute'
-  this.rootElement.style.width = '480px'
-  this.rootElement.style.height = '480px'
+  this.rootElement.style.width = '640px'
+  this.rootElement.style.height = '640px'
 }
 
 Game.prototype.show = function(){
@@ -18,10 +34,35 @@ Game.prototype.hide = function(){
 function AsteroidsGame(cfg){
   Game.call(this)
   this.canvas = document.createElement('canvas')
+  this.canvas.setAttribute('tabindex', '1')
   this.rootElement.appendChild(this.canvas)
 
+  this.ctx = this.canvas.getContext('2d')
+  this.keyPressed = { 'up' : false, 'left': false, 'right': false }
+  var keyMappings = {
+    38: 'up', 87: 'up',
+    37: 'left', 65: 'left',
+    39: 'right', 68: 'right'
+  }
+  var self = this
+  this.canvas.addEventListener('keydown', function(event){
+    if (keyMappings.hasOwnProperty(event.keyCode))
+      self.keyPressed[keyMappings[event.keyCode]] = true
+  }, false)
+
+  this.canvas.addEventListener('keyup', function(event){
+    if (keyMappings.hasOwnProperty(event.keyCode))
+      self.keyPressed[keyMappings[event.keyCode]] = false
+  })
+
   this.resize()
-  // additional constructor code
+  this.state = {
+    alive_time: 0,
+    asteroids_destroyed: 0,
+    asteroids_info: [],
+    player_info: []
+  }
+  this.start()
 }
 
 AsteroidsGame.prototype = Object.create(Game.prototype)
@@ -30,39 +71,132 @@ AsteroidsGame.prototype.constructor = Game
 AsteroidsGame.prototype.resize = function(){
   this.canvas.setAttribute('width', this.rootElement.style.width)
   this.canvas.setAttribute('height', this.rootElement.style.height)
-  // recalculate graphical stuff
+
+  this.screenWidth = parseInt(this.canvas.getAttribute('width'))
+  this.screenHeight = parseInt(this.canvas.getAttribute('height'))
 }
 
 AsteroidsGame.prototype.setState = function(gameState){
-  // set client game state from game state object
+  this.alive = gameState.alive_time
+  this.destroyed = gameState.asteroids_destroyed
+  this.asteroids = gameState.asteroids_info
+  this.player = gameState.player_info
 }
 AsteroidsGame.prototype.getState = function(){
-  // return single game state object
+  return {
+    alive_time: this.alive,
+    asteroids_destroyed: this.destroyed,
+    asteroids_info: this.asteroids,
+    player_info: this.player
+  }
 }
 
 AsteroidsGame.prototype.start = function(){
-  // hides game menu overlay and starts game
+  this.alive = 0
+  this.destroyed = 0
+  this.asteroids = []
+  this.asteroids.push(new Asteroid(3))
+  this.player = new Player()
+
+  var self = this
+  this.loopTimer = setInterval(
+    function(){ self.gameLoop() },
+    TIME_PER_FRAME
+  )
 }
 AsteroidsGame.prototype.stop = function(){
   // stops game and shows game menu overlay
+  clearInterval(this.loopTimer)
+}
+
+AsteroidsGame.prototype.gameLoop = function(){
+  if (this.keyPressed['up'])
+    console.log('up')
+  if (this.keyPressed['left'])
+    this.player.rotate(-5 / 180 * Math.PI)
+  if (this.keyPressed['right'])
+    this.player.rotate(5 / 180 * Math.PI)
+
+  // increase time counter
+  this.alive += TIME_PER_FRAME / 10
+
+  // move asteroids and player (destroy asteroids on 'out of screen')
+  outOfScreen = []
+  for (var i = 0; i < this.asteroids.length; i++) {
+    this.asteroids[i].move(this.screenWidth, this.screenHeight)
+    if (!this.asteroids[i].onScreen(this.screenWidth, this.screenHeight))
+      outOfScreen.push(i)
+  }
+  for (var i = 0; i < outOfScreen.length; i++)
+    this.asteroids.splice(outOfScreen[i]-i, 1)
+
+  this.score = computeScore(null, this.getState())
+  // add new asteroids if needed
+  for (var i = 0; i < (baseLog(5, this.score+1) - this.asteroids.length + 1); i++) {
+    this.asteroids.push(new Asteroid(baseLog(15, this.score+1)))
+  }
+
+  // compute and resolve collisions
+
+  this.redraw()
+}
+
+AsteroidsGame.prototype.redraw = function(){
+  // black background
+  this.ctx.fillStyle = '#000'
+  this.ctx.fillRect(0, 0, this.screenWidth, this.screenHeight)
+
+  // asteroids
+  for (var i = 0; i < this.asteroids.length; i++) {
+    draw(
+      this.asteroids[i], this.ctx,
+      this.screenWidth, this.screenHeight, ASTEROID_PEN
+    )
+  }
+
+  // explosions
+
+  // player
+  draw(this.player, this.ctx, this.screenWidth, this.screenHeight, PLAYER_PEN)
 }
 
 function computeScore(cfg, gameState){
-  // if unable to calculate score => -1
-  // else => time spent alive + asteroids destroyed * multiplier (5?)
+  try {
+    return gameState.alive_time + gameState.asteroids_destroyed * 50
+  } catch (error) {
+    console.error(error)
+    return -1
+  }
 }
 
 // Asteroid class ------------------------------------------------------
 function Asteroid(speed){
   this.speed = speed
-  this.direction = Math.random() * 360
-  // find appropriate position for asteroid
-  this.position = new Vector(0.5, 0.5)
+  this.direction = (
+    25 + Math.random() * 40 + parseInt(Math.random() * 4) * 90
+  ) / 180 * Math.PI
   this.reach = 0.025 + Math.random() * 0.025
 
-  var start = Math.random() * 360 / 180 * Math.PI
+  if (this.direction < 0.5 * Math.PI)
+    this.position = (Math.random() >= 0.5) ?
+      new Vector(-this.reach, 0.5 + Math.random() * 0.5) :
+      new Vector(Math.random() * 0.5, 1 + this.reach)
+  else if (this.direction < 1 * Math.PI)
+    this.position = (Math.random() >= 0.5) ?
+      new Vector(0.5 + Math.random() * 0.5, 1 + this.reach) :
+      new Vector(1 + this.reach, 0.5 + Math.random() * 0.5)
+  else if (this.direction < 1.5 * Math.PI)
+    this.position = (Math.random() >= 0.5) ?
+      new Vector(1 + this.reach, Math.random() * 0.5) :
+      new Vector(0.5 + Math.random() * 0.5, -this.reach)
+  else
+    this.position = (Math.random() >= 0.5) ?
+      new Vector(Math.random() * 0.5, -this.reach) :
+      new Vector(-this.reach, Math.random() * 0.5)
+
+  var start = Math.random() * 2 * Math.PI
   this.surface = [new Vector(Math.cos(start), Math.sin(start))]
-  for (i = 1; i < 360; i++){
+  for (var i = 1; i < 360; i++){
     var offset = this.surface[this.surface.length-1].length()
     offset += (Math.random() - 0.5) * 0.1
 
@@ -77,32 +211,36 @@ function Asteroid(speed){
   })
 }
 
-Asteroid.prototype.onScreen = function(width, height){
-  var p = this.position.multiply(size)
-  var checks = [
-    function(position, reach){
-      return position.x + reach > 0
-    },
-    function(position, reach){
-      return position.x - reach < size
-    },
-    function(position, reach){
-      return position.y + reach > 0
-    },
-    function(position, reach){
-      return position.y - reach < size
-    }
-  ]
+Asteroid.prototype.move = function(screenWidth, screenHeight){
+  this.position = this.position.add(
+    new Vector(
+      Math.cos(this.direction) / screenWidth,
+      -Math.sin(this.direction) / screenHeight
+    ).multiply(this.speed)
+  )
+}
 
-  for (i = 0; i < checks.length; i++)
-    if (!checks[i](p, this.reach))
+Asteroid.prototype.onScreen = function(width, height){
+  var checks = [
+    function(p, r, w, h){ return p.x + r.x > 0 },
+    function(p, r, w, h){ return p.x - r.x < w },
+    function(p, r, w, h){ return p.y + r.y > 0 },
+    function(p, r, w, h){ return p.y - r.y < h }
+  ]
+  var position = this.position.multiply(1)
+  position.x *= width
+  position.y *= height
+  var reach = new Vector(width, height).multiply(this.reach)
+
+  for (var i = 0; i < checks.length; i++)
+    if (!checks[i](position, reach, width, height))
       return false
   return true
 }
 
 Asteroid.prototype.explode = function(projectile){
   surface = []
-  for (i = 0; i < this.surface; i += 5)
+  for (var i = 0; i < this.surface; i += 5)
     surface.push(this.surface[i])
 
   return new Explosion(
@@ -118,14 +256,15 @@ function Explosion(speed, surface){
 }
 
 // Player class --------------------------------------------------------
-function Player() {
+function Player(){
   this.speed = 0.001
   this.position = new Vector(0.5, 0.5)
   this.reach = 0.05
+  this.lives = 3
 
   var self = this
   this.surface = [
-    new Vector(0.5, 0), new Vector(-0.5, 0.3), new Vector(-0.5, -0.3)
+    new Vector(0.35, 0), new Vector(-0.25, 0.25), new Vector(-0.25, -0.25)
   ].map(function(v){ return v.multiply(self.reach) })
 }
 
@@ -136,7 +275,7 @@ Player.prototype.collision = function(object){
   var self = this
   surface = this.surface.map(function(v){ return v.add(self.position) })
   a = surface[0]; b = surface[1]; c = surface[2]
-  for (i = 0; i < this.surface; i += 5) { // @todo test this
+  for (var i = 0; i < this.surface; i += 5) { // @todo test this
     var p = this.surface[i]
     var v0 = c.add(a.multiply(-1)),
         v1 = b.add(a.multiply(-1)),
@@ -160,22 +299,44 @@ Player.prototype.collision = function(object){
   return false
 }
 
+Player.prototype.rotate = function(degrees) {
+  this.surface = this.surface.map(function(v) {
+    return new Vector(
+      v.x * Math.cos(degrees) - v.y * Math.sin(degrees),
+      v.x * Math.sin(degrees) + v.y * Math.cos(degrees)
+    )
+  })
+}
+
 // Utility functions ---------------------------------------------------
-function draw(object, ctx, size, color, width) {
+function draw(object, ctx, screenWidth, screenHeight, pen) {
   surface = object.surface.map(function(v){
-    return v.add(object.position).multiply(size)
+    var u = v.add(object.position)
+    u.x *= screenWidth
+    u.y *= screenHeight
+    return u
   })
 
   ctx.beginPath()
   ctx.moveTo(surface[0].x, surface[0].y)
-  for (i = 1; i < surface.length; i++) {
+  for (var i = 1; i < surface.length; i++) {
     ctx.lineTo(surface[i].x, surface[i].y)
   }
   ctx.closePath()
 
-  ctx.strokeStyle = color
-  ctx.lineWidth = width
-  ctx.stroke()
+  if (pen.fill) {
+    ctx.fillStyle = pen.fill
+    ctx.fill()
+  }
+  if (pen.stroke){
+    ctx.strokeStyle = pen.stroke.color
+    ctx.lineWidth = pen.stroke.width
+    ctx.stroke()
+  }
+}
+
+function baseLog(x, y) {
+  return Math.log(y) / Math.log(x)
 }
 
 // Vector class --------------------------------------------------------
@@ -184,7 +345,7 @@ function Vector(x, y){
   this.y = y
 }
 
-Vector.prototype.length = function() {
+Vector.prototype.length = function(){
   return Math.sqrt(Math.pow(this.x, 2) + Math.pow(this.y, 2))
 }
 
@@ -211,14 +372,3 @@ Vector.prototype.multiply = function(other){
 // Execution -----------------------------------------------------------
 g = new AsteroidsGame()
 g.show()
-var ctx = g.canvas.getContext('2d')
-ctx.beginPath()
-ctx.rect(0, 0, parseInt(g.canvas.getAttribute('width')), parseInt(g.canvas.getAttribute('height')))
-ctx.fillStyle = '#000'
-ctx.fill()
-
-a = new Asteroid(10)
-draw(a, ctx, 480, '#fff', 1)
-
-p = new Player()
-// draw(p, ctx, 480, '#fff', 1.5)
