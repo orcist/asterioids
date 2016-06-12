@@ -84,7 +84,7 @@ AsteroidsGame.prototype.constructor = Game
 
 AsteroidsGame.prototype.resize = function(){
   this.adjustSize()
-  // rerender everything
+  // @todo rerender everything
 }
 
 AsteroidsGame.prototype.adjustSize = function(){
@@ -296,7 +296,7 @@ AsteroidsGame.prototype.updateUI = function(){
 
 function computeScore(cfg, gameState){
   try {
-    return gameState.asteroids_destroyed * 50 // @todo remake this
+    return gameState.asteroids_destroyed * 50
   } catch (error){
     console.error(error)
     return -1
