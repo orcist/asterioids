@@ -20,8 +20,10 @@ function AsteroidsGame(cfg){
   this.canvas = document.createElement('canvas')
   this.canvas.setAttribute('tabindex', '1')
   this.rootElement.appendChild(this.canvas)
-
   this.ctx = this.canvas.getContext('2d')
+
+  // add intromenu (enter user_id/this.uid) and set labels for score and lives
+
   this.keyPressed = { 'up' : false, 'left': false, 'right': false, 'fire': false }
   var keyMappings = {
     38: 'up', 87: 'up',
@@ -29,7 +31,6 @@ function AsteroidsGame(cfg){
     39: 'right', 68: 'right',
     32: 'fire', 13: 'fire'
   }
-  this.time = 0
 
   var self = this
   this.canvas.addEventListener('keydown', function(event){
@@ -49,6 +50,13 @@ function AsteroidsGame(cfg){
       stroke: {
         color: '#fff',
         width: 1
+      }
+    },
+    IMMORTAL: {
+      fill: '#000',
+      stroke: {
+        color: '#777',
+        width: 3
       }
     },
     PLAYER: {
@@ -75,10 +83,8 @@ AsteroidsGame.prototype = Object.create(Game.prototype)
 AsteroidsGame.prototype.constructor = Game
 
 AsteroidsGame.prototype.resize = function(){
-  // divide everything (pos+surf) by former scale
-  // asteroids, player, projectiles, explosions,
   this.adjustSize()
-  // multiply everything by new scale
+  // rerender everything
 }
 
 AsteroidsGame.prototype.adjustSize = function(){
@@ -93,6 +99,7 @@ AsteroidsGame.prototype.adjustSize = function(){
 }
 
 AsteroidsGame.prototype.setState = function(gameState){
+  this.uid = gameState.user_id
   this.destroyed = gameState.asteroids_destroyed
   this.asteroids = gameState.asteroids_info
   this.player = gameState.player_info
@@ -100,6 +107,7 @@ AsteroidsGame.prototype.setState = function(gameState){
 
 AsteroidsGame.prototype.getState = function(){
   return {
+    user_id: this.uid,
     asteroids_destroyed: this.destroyed,
     asteroids_info: this.asteroids,
     player_info: this.player
@@ -108,16 +116,19 @@ AsteroidsGame.prototype.getState = function(){
 
 AsteroidsGame.prototype.start = function(){
   this.destroyed = []
+  this.score = 0
+
   this.asteroids = []
   this.player = new Player(this.screen)
   this.projectiles = []
+  this.explosions = []
 
   var self = this
   this.loopTimer = setInterval(
     function(){ self.gameLoop() },
     this.TIME_PER_FRAME
   )
-  // setTimeout(function(){ self.stop() }, 5000) // @todo remove this
+  // setTimeout(function(){ self.stop() }, 500) // @todo remove this
 }
 
 AsteroidsGame.prototype.stop = function(){
@@ -126,17 +137,22 @@ AsteroidsGame.prototype.stop = function(){
 }
 
 AsteroidsGame.prototype.gameLoop = function(){
-  this.time += this.TIME_PER_FRAME
+  if (this.player.lives == 0) {
+    this.stop()
+    var self = this
+    setTimeout(function(){
+      self.ctx.fillStyle = '#000'
+      self.ctx.fillRect(0, 0, self.screen.width, self.screen.height)
+      // @todo send score to server
+    }, 10)
+  }
 
   this.handleInput()
   this.simulatePhysics()
-
-  // compute and resolve collisions
-  // for (var i = 0; i < this.asteroids.length; i++)
-  //   if (collides(this.player, this.asteroids[i]))
-  //     console.log('collision with asteroid', this.asteroids[i])
-
+  this.resolveCollisions()
   this.redraw()
+  this.updateUI()
+  this.score = computeScore(null, this.getState())
 }
 
 AsteroidsGame.prototype.handleInput = function(){
@@ -175,7 +191,7 @@ AsteroidsGame.prototype.handleInput = function(){
 }
 
 AsteroidsGame.prototype.simulatePhysics = function(){
-  offScreen = []
+  var offScreen = []
   for (var i = 0; i < this.asteroids.length; i++){
     move(this.asteroids[i], this.screen)
     if (!this.asteroids[i].onScreen())
@@ -184,10 +200,8 @@ AsteroidsGame.prototype.simulatePhysics = function(){
   for (var i = 0; i < offScreen.length; i++)
     this.asteroids.splice(offScreen[i]-i, 1)
 
-  this.score = computeScore(null, this.getState())
-  // add new asteroids if needed
-  for (var i = 0; i < (baseLog(5, this.score+1) - this.asteroids.length + 1); i++)
-    this.asteroids.push(new Asteroid(baseLog(15, this.score+1) + 3, this.screen))
+  for (var i = 0; i < (baseLog(10, this.score+1) - this.asteroids.length + 1); i++)
+    this.asteroids.push(new Asteroid(baseLog(40, this.score+1) + 2, this.screen))
 
   move(this.player, this.screen)
 
@@ -199,6 +213,57 @@ AsteroidsGame.prototype.simulatePhysics = function(){
   }
   for (var i = 0; i < offScreen.length; i++)
     this.projectiles.splice(offScreen[i]-i, 1)
+
+  offScreen = []
+  for (var i = 0; i < this.explosions.length; i++){
+    this.explosions[i].move(this.screen)
+    if (this.explosions[i].expired())
+      offScreen.push(i)
+  }
+  for (var i = 0; i < offScreen.length; i++)
+    this.explosions.splice(offScreen[i]-i, 1)
+}
+
+AsteroidsGame.prototype.resolveCollisions = function(){
+  var collisions = [], asteroidsHit = []
+  for (var p = 0; p < this.projectiles.length; p++)
+    for (var a = 0; a < this.asteroids.length; a++){
+      if (asteroidsHit.indexOf(a) != -1)
+        continue
+      if (collides(this.projectiles[p], this.asteroids[a], this.screen)){
+        collisions.push([p, a])
+        asteroidsHit.push(a)
+        break
+      }
+    }
+  var p, a, pi, ai, particles, speed
+  for (var i = 0; i < collisions.length; i++){
+    pi = collisions[i][0]; ai = collisions[i][1]
+    p = this.projectiles[pi]; a = this.asteroids[ai]
+
+    particles = []
+    for (var j = 0; j < a.surface.length; j += 18)
+      particles.push(a.surface[j].add(a.position))
+    speed = new Vector().fromAngle(p.direction).multiply(p.speed)
+      .normalized()
+    speed.y *= -1
+    this.explosions.push(new Explosion(speed, particles))
+  }
+  for (var i = 0; i < collisions.length; i++){
+    this.projectiles.splice(collisions[i][0]-i, 1)
+    this.asteroids.splice(collisions[i][1]-i, 1)
+    this.destroyed++
+  }
+
+  var player = this.player
+  if (!player.immortal)
+    for (var i = 0; i < this.asteroids.length; i++)
+      if (collides(player, this.asteroids[i], this.screen)){
+
+        player.lives -= 1
+        player.immortal = true
+        setTimeout(function() { player.immortal = false }, 3000)
+      }
 }
 
 AsteroidsGame.prototype.redraw = function(){
@@ -211,13 +276,21 @@ AsteroidsGame.prototype.redraw = function(){
     draw(this.asteroids[i], this.ctx, this.PEN.ASTEROID)
 
   // player
-  draw(this.player, this.ctx, this.PEN.PLAYER)
+  draw(
+    this.player, this.ctx,
+    this.player.immortal ? this.PEN.IMMORTAL : this.PEN.PLAYER
+  )
 
   // projectiles
   for (var i = 0; i < this.projectiles.length; i++)
     draw(this.projectiles[i], this.ctx, this.PEN.PROJECTILE)
 
   // explosions
+  for (var i = 0; i < this.explosions.length; i++)
+    this.explosions[i].draw(this.screen, this.ctx)
+}
+
+AsteroidsGame.prototype.updateUI = function(){
 
 }
 
@@ -289,7 +362,7 @@ Asteroid.prototype.onScreen = function(){
 }
 
 Asteroid.prototype.explode = function(projectile){
-  surface = []
+  var surface = []
   for (var i = 0; i < this.surface; i += 5)
     surface.push(this.surface[i])
 
@@ -299,14 +372,11 @@ Asteroid.prototype.explode = function(projectile){
   )
 }
 
-// Explosion class -----------------------------------------------------
-function Explosion(speed, surface){
-  this.speed = speed
-  this.surface = surface
-}
-
 // Player class --------------------------------------------------------
 function Player(screen){
+  this.immortal = false
+  this.lives = 3
+
   this.speed = new Vector(0, 0)
   this.maxForce = 0.01
   this.force = 0.001
@@ -337,7 +407,7 @@ Player.prototype.rotate = function(degrees, screen){
 function Projectile(position, direction, screen){
   this.position = position
   this.direction = direction
-  this.speed = 4
+  this.speed = 6
 
   this.reach = 0.0015
   this.surface = []
@@ -360,6 +430,48 @@ Projectile.prototype.onScreen = function(){
   )
 }
 
+// Explosion class -----------------------------------------------------
+function Explosion(speed, particles){
+  this.particles = particles.map(function(position){
+    return [
+      position, 40 + Math.random() * 20,
+      speed.add(speed.normalized().multiply(Math.random() * speed.magnitude() / 5))
+    ]
+  })
+}
+
+Explosion.prototype.move = function(screen){
+  var expired = [], p
+  for (var i = 0; i < this.particles.length; i++){
+    p = this.particles[i]
+    p[0] = p[0].add(p[2].multiply(1 / screen.scale))
+    p[1] -= 1
+    p[2].multiply(0.5)
+
+    if (p[1] <= 0)
+      expired.push(i)
+  }
+  for (var i = 0; i < expired.length; i++)
+    this.particles.splice(expired[i]-i, 1)
+}
+
+Explosion.prototype.expired = function(){
+  return this.particles.length == 0
+}
+
+Explosion.prototype.draw = function(screen, ctx){
+  var p, position, color, size
+  for (var i = 0; i < this.particles.length; i++){
+    p = this.particles[i]
+    position = new Vector(p[0].x * screen.width, p[0].y * screen.height)
+    color = parseInt(256 * p[1] / 60)
+    size = 0.01 * p[1] / 60 * screen.scale
+
+    ctx.fillStyle = 'rgb(255,' + color + ', 0)'
+    ctx.fillRect(position.x - size / 2, position.y - size / 2, size, size)
+  }
+}
+
 // Utility functions ---------------------------------------------------
 function getRender(object, screen){
   return {
@@ -373,8 +485,31 @@ function getRender(object, screen){
   }
 }
 
+function move(object, screen){
+  if (typeof(object.speed) == 'number')
+    object.position = object.position.add(
+      new Vector(
+        Math.cos(object.direction),
+        -Math.sin(object.direction)
+      ).multiply(object.speed / screen.scale)
+    )
+  else
+    object.position = object.position.add(object.speed)
+
+  object.render.position = new Vector(
+    object.position.x * screen.width,
+    object.position.y * screen.height
+  )
+}
+
+function collides(object, other, screen){
+  return (object.render.position.distance(other.render.position) <
+    Math.max(object.reach, other.reach) * screen.scale
+  )
+}
+
 function draw(object, ctx, pen){
-  points = object.render.surface.map(function(v){
+  var points = object.render.surface.map(function(v){
     return v.add(object.render.position)
   })
 
@@ -396,27 +531,6 @@ function draw(object, ctx, pen){
   }
 }
 
-function move(object, screen){
-  if (typeof(object.speed) == 'number')
-    object.position = object.position.add(
-      new Vector(
-        Math.cos(object.direction),
-        -Math.sin(object.direction)
-      ).multiply(object.speed / screen.scale)
-    )
-  else
-    object.position = object.position.add(object.speed)
-
-  object.render.position = new Vector(
-    object.position.x * screen.width,
-    object.position.y * screen.height
-  )
-}
-
-function collides(object, other){
-  return object.position.distance(other.position) < Math.max(object.reach, other.reach)
-}
-
 function baseLog(x, y){
   return Math.log(y) / Math.log(x)
 }
@@ -436,7 +550,7 @@ Vector.prototype.normalized = function(){
 }
 
 Vector.prototype.distance = function(other){
-  return other.add(this.multiply(-1)).length()
+  return other.add(this.multiply(-1)).magnitude()
 }
 
 Vector.prototype.add = function(other){
@@ -453,6 +567,10 @@ Vector.prototype.multiply = function(other){
     return new Vector(this.x * other.x + this.y * other.y)
   else
     console.error('Cannot multiply Vector with a variable of type ' + typeof(other) +  '.')
+}
+
+Vector.prototype.fromAngle = function(angle){
+  return new Vector(Math.cos(angle), Math.sin(angle))
 }
 
 // Execution -----------------------------------------------------------
