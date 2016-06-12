@@ -17,12 +17,100 @@ Game.prototype.hide = function(){
 // AsteroidsGame class -------------------------------------------------
 function AsteroidsGame(cfg){
   Game.call(this)
+  var self = this
+
+  this.rootElement.style.background = '#000'
+  this.rootElement.style.resize = 'both'
+  this.rootElement.style.overflow = 'hidden'
+  // @todo rootElement resizing (interval check for width and height)
+
   this.canvas = document.createElement('canvas')
   this.canvas.setAttribute('tabindex', '1')
   this.rootElement.appendChild(this.canvas)
   this.ctx = this.canvas.getContext('2d')
 
-  // add intromenu (enter user_id/this.uid) and set labels for score and lives
+  this.style = document.createElement('style')
+  this.style.innerHTML = (
+    '\
+    .label {\
+      position: absolute;\
+      display: inline-block;\
+      top: 0;\
+      color: #fff;\
+      font-size: 1.5em;\
+      font-variant: small-caps;\
+      padding: 0.5em;\
+    }\
+    .initialUI {\
+      display: block;\
+      margin: 0 auto;\
+      padding: 0.3em;\
+      width: 10em;\
+      background: #000;\
+      color: #fff;\
+      font-size: 1.3em;\
+      border: 1px solid #fff;\
+      box-sizing: content-box;\
+      text-align: left;\
+      font-variant: small-caps;\
+      transition: all 0.5s;\
+    }\
+    button.initialUI:hover {\
+      background: #fff;\
+      color: #000;\
+      transition: all 1s;\
+    }\
+    '
+  )
+  this.rootElement.appendChild(this.style)
+
+  this.labels = {
+    score: document.createElement('div'),
+    lives: document.createElement('div')
+  }
+
+  this.labels.score.classList.add('label')
+  this.labels.score.style.left = '0'
+  this.rootElement.appendChild(this.labels.score)
+
+  this.labels.lives.classList.add('label')
+  this.labels.lives.style.right = '0'
+  this.rootElement.appendChild(this.labels.lives)
+
+  this.form = document.createElement('div')
+  this.form.style.position = 'absolute'
+  this.form.style.bottom = '50%'
+  this.form.style.width = '100%'
+  this.rootElement.appendChild(this.form)
+
+  this.captionL = document.createElement('div')
+  this.captionL.innerHTML = 'Asteroids'
+  this.captionL.classList.add('initialUI')
+  this.captionL.style.border = 'none'
+  this.form.appendChild(this.captionL)
+
+  this.uidI = document.createElement('input')
+  this.uidI.setAttribute('type', 'text')
+  this.uidI.setAttribute('placeholder', 'nickname (required)')
+  this.uidI.setAttribute('id', 'asteroidsNickname')
+  this.uidI.classList.add('initialUI')
+  this.uidI.style.borderRadius = '0.3em 0.3em 0em 0em'
+  this.form.appendChild(this.uidI)
+
+  this.submitI = document.createElement('button')
+  this.submitI.setAttribute('type', 'button')
+  this.submitI.innerHTML = 'play'
+  this.submitI.classList.add('initialUI')
+  this.submitI.style.borderTop = 'none'
+  this.submitI.style.borderRadius = '0em 0em 0.3em 0.3em'
+  this.submitI.addEventListener('click', function(event){
+    self.uid = sanitize(self.uidI.value)
+    if (self.uid.length > 0){
+      self.adjustSize()
+      self.start()
+    }
+  })
+  this.form.appendChild(this.submitI)
 
   this.keyPressed = { 'up' : false, 'left': false, 'right': false, 'fire': false }
   var keyMappings = {
@@ -74,9 +162,6 @@ function AsteroidsGame(cfg){
       }
     }
   }
-
-  this.adjustSize()
-  this.start()
 }
 
 AsteroidsGame.prototype = Object.create(Game.prototype)
@@ -128,16 +213,17 @@ AsteroidsGame.prototype.start = function(){
     function(){ self.gameLoop() },
     this.TIME_PER_FRAME
   )
-  // setTimeout(function(){ self.stop() }, 500) // @todo remove this
+
+  this.form.style.display = 'none'
 }
 
 AsteroidsGame.prototype.stop = function(){
-  // stops game and shows game menu overlay
   clearInterval(this.loopTimer)
+  this.form.style.display = 'block'
 }
 
 AsteroidsGame.prototype.gameLoop = function(){
-  if (this.player.lives == 0) {
+  if (this.player.lives == 2) {
     this.stop()
     var self = this
     setTimeout(function(){
@@ -291,7 +377,8 @@ AsteroidsGame.prototype.redraw = function(){
 }
 
 AsteroidsGame.prototype.updateUI = function(){
-
+  this.labels.score.innerHTML = 'score: ' + this.score
+  this.labels.lives.innerHTML = 'lives: ' + this.player.lives
 }
 
 function computeScore(cfg, gameState){
@@ -533,6 +620,31 @@ function draw(object, ctx, pen){
 
 function baseLog(x, y){
   return Math.log(y) / Math.log(x)
+}
+
+function sanitize(raw){
+  var tagBody = '(?:[^"\'>]|"[^"]*"|\'[^\']*\')*';
+  var tagOrComment = new RegExp(
+      '<(?:'
+      // Comment body.
+      + '!--(?:(?:-*[^->])*--+|-?)'
+      // Special "raw text" elements whose content should be elided.
+      + '|script\\b' + tagBody + '>[\\s\\S]*?</script\\s*'
+      + '|style\\b' + tagBody + '>[\\s\\S]*?</style\\s*'
+      // Regular name
+      + '|/?[a-z]'
+      + tagBody
+      + ')>',
+      'gi');
+
+  var temp;
+  do {
+    temp = raw;
+    raw = raw.replace(tagOrComment, '');
+  } while (raw !== temp);
+
+  return raw.replace(/</g, '&lt;');
+  // credits go to http://stackoverflow.com/questions/295566/sanitize-rewrite-html-on-the-client-side
 }
 
 // Vector class --------------------------------------------------------
