@@ -20,9 +20,6 @@ function AsteroidsGame(cfg){
   var self = this
 
   this.rootElement.style.background = '#000'
-  this.rootElement.style.resize = 'both'
-  this.rootElement.style.overflow = 'hidden'
-  // @todo rootElement resizing (interval check for width and height)
 
   this.canvas = document.createElement('canvas')
   this.canvas.setAttribute('tabindex', '1')
@@ -105,10 +102,8 @@ function AsteroidsGame(cfg){
   this.submitI.style.borderRadius = '0em 0em 0.3em 0.3em'
   this.submitI.addEventListener('click', function(event){
     self.uid = sanitize(self.uidI.value)
-    if (self.uid.length > 0){
-      self.adjustSize()
+    if (self.uid.length > 0)
       self.start()
-    }
   })
   this.form.appendChild(this.submitI)
 
@@ -162,25 +157,43 @@ function AsteroidsGame(cfg){
       }
     }
   }
+
+  this.adjustSize()
+  setInterval(function(){
+    if (self.adjustSize())
+      self.resize()
+  }, 20)
 }
 
 AsteroidsGame.prototype = Object.create(Game.prototype)
 AsteroidsGame.prototype.constructor = Game
 
 AsteroidsGame.prototype.resize = function(){
-  this.adjustSize()
-  // @todo rerender everything
+  for (var i = 0; i < this.asteroids.length; i++)
+    this.asteroids[i].render = getRender(this.asteroids[i], this.screen)
+
+  this.player.render = getRender(this.player, this.screen)
+
+  for (var i = 0; i < this.projectiles.length; i++)
+    this.projectiles[i].render = getRender(this.projectiles[i], this.screen)
 }
 
 AsteroidsGame.prototype.adjustSize = function(){
-  this.canvas.setAttribute('width', this.rootElement.style.width)
-  this.canvas.setAttribute('height', this.rootElement.style.height)
+  var w = parseInt(this.rootElement.style.width),
+      h = parseInt(this.rootElement.style.height)
+
+  if (this.screen && w == this.screen.width && h == this.screen.height)
+    return false
+
+  this.canvas.setAttribute('width', w)
+  this.canvas.setAttribute('height', h)
 
   this.screen = {
-    width: parseInt(this.canvas.getAttribute('width')),
-    height: parseInt(this.canvas.getAttribute('height'))
+    width: w,
+    height: h,
+    scale: Math.min(w, h)
   }
-  this.screen.scale = Math.min(this.screen.width, this.screen.height)
+  return true
 }
 
 AsteroidsGame.prototype.setState = function(gameState){
@@ -223,7 +236,7 @@ AsteroidsGame.prototype.stop = function(){
 }
 
 AsteroidsGame.prototype.gameLoop = function(){
-  if (this.player.lives == 2) {
+  if (this.player.lives == 0) {
     this.stop()
     var self = this
     setTimeout(function(){
