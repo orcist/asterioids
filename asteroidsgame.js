@@ -354,15 +354,29 @@ AsteroidsGame.prototype.resolveCollisions = function(){
     this.destroyed++
   }
 
+  collisions = []
   var player = this.player
   if (!player.immortal)
     for (var i = 0; i < this.asteroids.length; i++)
       if (collides(player, this.asteroids[i], this.screen)){
+        particles = []
+        a = this.asteroids[i]
+        for (var j = 0; j < a.surface.length; j += 18)
+          particles.push(a.surface[j].add(a.position))
+        speed = new Vector().fromAngle(a.direction).multiply(a.speed)
+          .normalized()
+        speed.y *= -1
+        this.explosions.push(new Explosion(speed, particles))
+        collisions.push(i)
 
         player.lives -= 1
         player.immortal = true
         setTimeout(function() { player.immortal = false }, 3000)
       }
+
+  for (var i = 0; i < collisions.length; i++)
+    this.asteroids.splice(collisions[i]-i, 1)
+
 }
 
 AsteroidsGame.prototype.redraw = function(){
